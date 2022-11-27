@@ -27,6 +27,7 @@ add_library(echo SHARED
         EchoAudioEngine.cpp
         jni_bridge.cpp
         AudioEffect.cpp
+        wavCode.cpp
         ${DEBUG_UTILS_SOURCES}
         ${AAUDIO_COMMON_SOURCES}
         )

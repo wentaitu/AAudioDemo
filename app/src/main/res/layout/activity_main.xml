@@ -90,4 +90,24 @@
         app:layout_constraintLeft_toLeftOf="parent"
         app:layout_constraintTop_toBottomOf="@+id/status_view_title" />
 
+    <Button
+        android:id="@+id/button_replay"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginBottom="16dp"
+        android:text="@string/start_player"
+        app:layout_constraintBottom_toTopOf="@+id/button_toggle_echo"
+        app:layout_constraintEnd_toEndOf="@+id/button_toggle_echo"
+        app:layout_constraintStart_toStartOf="@+id/button_toggle_echo" />
+
+    <Button
+        android:id="@+id/button_recording"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginBottom="16dp"
+        android:text="@string/start_record"
+        app:layout_constraintBottom_toTopOf="@+id/button_replay"
+        app:layout_constraintEnd_toEndOf="@+id/button_replay"
+        app:layout_constraintStart_toStartOf="@+id/button_replay" />
+
 </androidx.constraintlayout.widget.ConstraintLayout>

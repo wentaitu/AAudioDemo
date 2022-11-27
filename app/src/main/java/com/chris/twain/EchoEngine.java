@@ -18,9 +18,11 @@ public enum EchoEngine {
 
     static native void setPlaybackDeviceId(int deviceId);
 
-    static native void startRecord();
+    static native void startRecord(String path);
 
     static native void stopRecord();
 
-    static native void replay();
+    static native void startPlayer(String path);
+
+    static native void stopPlayer();
 }

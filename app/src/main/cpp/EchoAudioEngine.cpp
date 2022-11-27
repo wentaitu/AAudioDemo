@@ -19,6 +19,7 @@
 #include <assert.h>
 #include <audio_common.h>
 #include "EchoAudioEngine.h"
+#include "wavCode.h"
 
 
 /**
@@ -63,6 +64,53 @@ void errorCallback(AAudioStream *stream,
     audioEngine->errorCallback(stream, error);
 }
 
+aaudio_data_callback_result_t playDataCallback(AAudioStream *stream, void *userData,
+                                               void *audioData, int32_t numFrames) {
+    if (userData == nullptr || audioData == nullptr) {
+        LOGI("AAudioEngineCPP %s", "playDataCallback userData null|audioData null");
+        return AAUDIO_CALLBACK_RESULT_STOP;
+    }
+    EchoAudioEngine *audioEngine = reinterpret_cast<EchoAudioEngine *>(userData);
+    return audioEngine->dataToPlayCallback(stream, audioData, numFrames);
+}
+
+aaudio_data_callback_result_t recordDataCallback(AAudioStream *stream, void *userData,
+                                                 void *audioData, int32_t numFrames) {
+    if (userData == nullptr) {
+        LOGI("AAudioEngineCPP %s", "userDatauserData == nullptr");
+        return AAUDIO_CALLBACK_RESULT_CONTINUE;
+    }
+
+    if (audioData == nullptr) {
+        LOGI("AAudioEngineCPP %s", "audioData == nullptr");
+        return AAUDIO_CALLBACK_RESULT_CONTINUE;
+    }
+    EchoAudioEngine *audioEngine = reinterpret_cast<EchoAudioEngine *>(userData);
+    return audioEngine->dataToRecordCallback(stream, audioData, numFrames);
+}
+
+void recordErrorCallback(AAudioStream *stream,
+                         void *userData,
+                         aaudio_result_t error) {
+    if (userData == nullptr) {
+        LOGI("AAudioEngineCPP %s", "recordError userData == nullptr");
+        return;
+    }
+    EchoAudioEngine *audioEngine = reinterpret_cast<EchoAudioEngine *>(userData);
+    audioEngine->recordErrorCallback(stream, error);
+}
+
+void playErrorCallback(AAudioStream *stream,
+                       void *userData,
+                       aaudio_result_t error) {
+    if (userData == nullptr) {
+        LOGI("AAudioEngineCPP %s", "playError userData == nullptr");
+        return;
+    }
+    EchoAudioEngine *audioEngine = reinterpret_cast<EchoAudioEngine *>(userData);
+    audioEngine->playErrorCallback(stream, error);
+}
+
 EchoAudioEngine::~EchoAudioEngine() {
     stopStream(playStream_);
     stopStream(recordingStream_);
@@ -95,8 +143,8 @@ void EchoAudioEngine::openAllStreams() {
     // Note: The order of stream creation is important. We create the playback stream first,
     // then use properties from the playback stream (e.g. sample rate) to create the
     // recording stream. By matching the properties we should get the lowest latency path
-    openPlaybackStream();
-    openRecordingStream();
+    openPlaybackStream(false);
+    openRecordingStream(false);
 
     // Now start the recording stream first so that we can read from it during the playback
     // stream's dataCallback
@@ -149,14 +197,14 @@ AAudioStreamBuilder *EchoAudioEngine::createStreamBuilder() {
  * Creates an audio stream for recording. The audio device used will depend on recordingDeviceId_.
  * If the value is set to AAUDIO_UNSPECIFIED then the default recording device will be used.
  */
-void EchoAudioEngine::openRecordingStream() {
+void EchoAudioEngine::openRecordingStream(bool isOnlyRecording) {
 
     // To create a stream we use a stream builder. This allows us to specify all the parameters
     // for the stream prior to opening it
     AAudioStreamBuilder *builder = createStreamBuilder();
 
     if (builder != nullptr) {
-        setupRecordingStreamParameters(builder);
+        setupRecordingStreamParameters(builder, isOnlyRecording);
 
         // Now that the parameters are set up we can open the stream
         aaudio_result_t result = AAudioStreamBuilder_openStream(builder, &recordingStream_);
@@ -177,12 +225,12 @@ void EchoAudioEngine::openRecordingStream() {
  * Creates an audio stream for playback. The audio device used will depend on playbackDeviceId_.
  * If the value is set to AAUDIO_UNSPECIFIED then the default playback device will be used.
  */
-void EchoAudioEngine::openPlaybackStream() {
+void EchoAudioEngine::openPlaybackStream(bool isOnlyPlaying) {
 
     AAudioStreamBuilder *builder = createStreamBuilder();
 
     if (builder != nullptr) {
-        setupPlaybackStreamParameters(builder);
+        setupPlaybackStreamParameters(builder, isOnlyPlaying);
         aaudio_result_t result = AAudioStreamBuilder_openStream(builder, &playStream_);
         if (result == AAUDIO_OK && playStream_ != nullptr) {
 
@@ -209,12 +257,19 @@ void EchoAudioEngine::openPlaybackStream() {
  * is determined from the playback stream.
  * @param builder The recording stream builder
  */
-void EchoAudioEngine::setupRecordingStreamParameters(AAudioStreamBuilder *builder) {
+void EchoAudioEngine::setupRecordingStreamParameters(AAudioStreamBuilder *builder,
+                                                     bool isOnlyRecording) {
     AAudioStreamBuilder_setDeviceId(builder, recordingDeviceId_);
     AAudioStreamBuilder_setDirection(builder, AAUDIO_DIRECTION_INPUT);
     AAudioStreamBuilder_setSampleRate(builder, sampleRate_);
     AAudioStreamBuilder_setChannelCount(builder, inputChannelCount_);
     setupCommonStreamParameters(builder);
+    if (isOnlyRecording) {
+        AAudioStreamBuilder_setDataCallback(builder, ::recordDataCallback, this);
+        AAudioStreamBuilder_setErrorCallback(builder, ::recordErrorCallback, this);
+    } else {
+        AAudioStreamBuilder_setErrorCallback(builder, ::errorCallback, this);
+    }
 }
 
 /**
@@ -222,7 +277,8 @@ void EchoAudioEngine::setupRecordingStreamParameters(AAudioStreamBuilder *builde
  * dataCallback function, which must be set for low latency playback.
  * @param builder The playback stream builder
  */
-void EchoAudioEngine::setupPlaybackStreamParameters(AAudioStreamBuilder *builder) {
+void
+EchoAudioEngine::setupPlaybackStreamParameters(AAudioStreamBuilder *builder, bool isOnlyPlaying) {
 
     AAudioStreamBuilder_setDeviceId(builder, playbackDeviceId_);
     AAudioStreamBuilder_setDirection(builder, AAUDIO_DIRECTION_OUTPUT);
@@ -230,8 +286,14 @@ void EchoAudioEngine::setupPlaybackStreamParameters(AAudioStreamBuilder *builder
 
     // The :: here indicates that the function is in the global namespace
     // i.e. *not* EchoAudioEngine::dataCallback, but dataCallback defined at the top of this class
-    AAudioStreamBuilder_setDataCallback(builder, ::dataCallback, this);
     setupCommonStreamParameters(builder);
+    if (isOnlyPlaying) {
+        AAudioStreamBuilder_setDataCallback(builder, ::playDataCallback, this);
+        AAudioStreamBuilder_setErrorCallback(builder, ::playErrorCallback, this);
+    } else {
+        AAudioStreamBuilder_setDataCallback(builder, ::dataCallback, this);
+        AAudioStreamBuilder_setErrorCallback(builder, ::errorCallback, this);
+    }
 }
 
 /**
@@ -244,7 +306,6 @@ void EchoAudioEngine::setupCommonStreamParameters(AAudioStreamBuilder *builder) 
     // If EXCLUSIVE mode isn't available the builder will fall back to SHARED mode.
     AAudioStreamBuilder_setSharingMode(builder, AAUDIO_SHARING_MODE_EXCLUSIVE);
     AAudioStreamBuilder_setPerformanceMode(builder, AAUDIO_PERFORMANCE_MODE_LOW_LATENCY);
-    AAudioStreamBuilder_setErrorCallback(builder, ::errorCallback, this);
 }
 
 void EchoAudioEngine::startStream(AAudioStream *stream) {
@@ -280,6 +341,28 @@ void EchoAudioEngine::closeStream(AAudioStream *stream) {
         if (result != AAUDIO_OK) {
             LOGE("Error closing stream. %s", AAudio_convertResultToText(result));
         }
+    }
+}
+
+/**
+ * Stops and closes the recording streams.
+ */
+void EchoAudioEngine::closeRecordStreams() {
+    if (recordingStream_ != nullptr) {
+        LOGI("AAudioEngineCPP %s", "closeRecordStreams begin");
+        closeStream(recordingStream_);
+        LOGI("AAudioEngineCPP %s", "closeRecordStreams finish");
+        recordingStream_ = nullptr;
+    }
+}
+
+/**
+ * Stops and closes the playback streams.
+ */
+void EchoAudioEngine::closePlayStreams() {
+    if (playStream_ != nullptr) {
+        closeStream(playStream_); // Calling close will also stop the stream
+        playStream_ = nullptr;
     }
 }
 
@@ -395,5 +478,144 @@ void EchoAudioEngine::warnIfNotLowLatency(AAudioStream *stream) {
 
     if (AAudioStream_getPerformanceMode(stream) != AAUDIO_PERFORMANCE_MODE_LOW_LATENCY) {
         LOGW("Stream is NOT low latency. Check your requested format, sample rate and channel count");
+    }
+}
+
+void EchoAudioEngine::stopRecord() {
+    LOGI("AAudioEngineCPP %s", "stopRecord");
+    stopStream(recordingStream_);
+    isRecordIng = false;
+    closeAllStreams(); // closeRecordStreams();
+    LOGI("AAudioEngineCPP %s", "record fclose");
+    fclose(recordFile);
+    wavCode::pcvToWav(recordPath, inputChannelCount_, 48000, 16, recordPath);
+}
+
+void EchoAudioEngine::startRecord(const char *path) {
+    LOGI("AAudioEngineCPP %s", "startRecord");
+    recordPath = path;
+    recordFile = fopen(recordPath, "wb");
+
+    closeRecordStreams();
+    openRecordingStream(true);
+    if (recordingStream_ != nullptr) {
+        isRecordIng = true;
+        startStream(recordingStream_);
+    }
+}
+
+void EchoAudioEngine::stopPlayer() {
+    LOGI("AAudioEngineCPP %s", "stopPlayer");
+    stopStream(playStream_);
+    isPlaying = false;
+    closePlayStreams();
+}
+
+void EchoAudioEngine::startPlayer(const char *path) {
+    LOGI("AAudioEngineCPP %s", "startPlayer");
+    playFile = fopen(path, "rb");
+    closePlayStreams();
+    openPlaybackStream(true);
+    if (playStream_ != nullptr) {
+        isPlaying = true;
+        startStream(playStream_);
+    }
+}
+
+aaudio_data_callback_result_t EchoAudioEngine::dataToRecordCallback(AAudioStream *stream,
+                                                                    void *audioData,
+                                                                    int32_t numFrames) {
+    static uint64_t logging_flag;
+    if (isRecordIng) {
+        fwrite(audioData, 1, 2 * numFrames * sizeof(short), recordFile);
+        if ((logging_flag++) % 100 == 0) {
+            LOGI("AAudioEngineCPP recordIng, numFrames: %d.", numFrames);
+        }
+        return AAUDIO_CALLBACK_RESULT_CONTINUE;
+    } else {
+        LOGI("AAudioEngineCPP isRecordIng status:%d", isRecordIng);
+    }
+
+    wavCode wav;
+    // wav = reinterpret_cast<wavCode *>(NULL);
+    wav.pcvToWav(recordPath, inputChannelCount_, 48000, 16, recordPath);
+    return AAUDIO_CALLBACK_RESULT_STOP;
+}
+
+aaudio_data_callback_result_t EchoAudioEngine::dataToPlayCallback(AAudioStream *stream,
+                                                                  void *audioData,
+                                                                  int32_t numFrames) {
+    static uint64_t logging_flag;
+    if (playFile && isPlaying) {
+        size_t treadsize = fread(audioData, 2 * numFrames * sizeof(short), 1, playFile);
+        if ((logging_flag++) % 20 == 0) {
+            LOGI("AAudioEngineCPP %s", "playing");
+        }
+        if (treadsize > 0) {
+            return AAUDIO_CALLBACK_RESULT_CONTINUE;
+        }
+    }
+    fclose(playFile);
+    LOGI("AAudioEngineCPP %s", "AAUDIO_CALLBACK_RESULT_STOP");
+    return AAUDIO_CALLBACK_RESULT_STOP;
+}
+
+void EchoAudioEngine::recordErrorCallback(AAudioStream *stream,
+                                          aaudio_result_t error) {
+
+    LOGI("AAudioEngineCPP recordErrorCallback has result: %s", AAudio_convertResultToText(error));
+    aaudio_stream_state_t streamState = AAudioStream_getState(stream);
+    if (streamState == AAUDIO_STREAM_STATE_DISCONNECTED) {
+        // recordingStream_ = nullptr;
+        // Handle stream restart on a separate thread
+        std::function<void(void)> resetRecordStreams = std::bind(
+                &EchoAudioEngine::resetRecordStreams, this);
+        std::thread recordStreamResetThread(resetRecordStreams);
+        recordStreamResetThread.detach();
+    }
+}
+
+void EchoAudioEngine::playErrorCallback(AAudioStream *stream,
+                                        aaudio_result_t error) {
+
+    LOGI("AAudioEngineCPP playErrorCallback has result: %s", AAudio_convertResultToText(error));
+    aaudio_stream_state_t streamState = AAudioStream_getState(stream);
+    if (streamState == AAUDIO_STREAM_STATE_DISCONNECTED) {
+
+        // Handle stream restart on a separate thread
+        std::function<void(void)> resetPlayStreams = std::bind(&EchoAudioEngine::resetPlayStreams,
+                                                               this);
+        std::thread playStreamResetThread(resetPlayStreams);
+        playStreamResetThread.detach();
+    }
+}
+
+/**
+ * Restart the streams. During the restart operation subsequent calls to this method will output
+ * a warning.
+ */
+void EchoAudioEngine::resetRecordStreams() {
+    LOGI("AAudioEngineCPP Resetting RecordStreams");
+    if (restartingLock_.try_lock()) {
+        closeRecordStreams();
+        restartingLock_.unlock();
+    } else {
+        LOGW("AAudioEngineCPP Reset RecordStreams operation already in progress - ignoring this request");
+        // We were unable to obtain the restarting lock which means the restart operation is currently
+        // active. This is probably because we received successive "stream disconnected" events.
+        // Internal issue b/63087953
+    }
+}
+
+void EchoAudioEngine::resetPlayStreams() {
+    LOGI("AAudioEngineCPP Resetting PlayStreams");
+    if (restartingLock_.try_lock()) {
+        closePlayStreams();
+        restartingLock_.unlock();
+    } else {
+        LOGW("AAudioEngineCPP Reset PlayStreams operation already in progress - ignoring this request");
+        // We were unable to obtain the restarting lock which means the restart operation is currently
+        // active. This is probably because we received successive "stream disconnected" events.
+        // Internal issue b/63087953
     }
 }
