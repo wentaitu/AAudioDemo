@@ -2,34 +2,35 @@
 #include <logging_macros.h>
 #include "wavCode.h"
 #include <cstring>
+#include <stdint.h>
 
 using namespace std;
 
 #define WAV_DATA_SIZE 4
 
 typedef struct WAV_HEADER {
-    char chunkid[4];
-    unsigned long chunksize;//long 4字节
-    char format[WAV_DATA_SIZE];
+    uint8_t chunkid[4];
+    uint32_t chunksize;//long 4字节
+    uint8_t format[WAV_DATA_SIZE];
 
 } pcmHeader;
 
 
 typedef struct WAV_FMT {
-    char subformat[4];
-    unsigned long sbusize;
-    unsigned short audioFormat;//short 两字节
-    unsigned short numchannels;
-    unsigned long sampleRate;
-    unsigned long byteRate;
-    unsigned short blockAlign;
-    unsigned short bitPerSample;
+    uint8_t subformat[4];
+    uint32_t sbusize;
+    uint16_t audioFormat;//short 两字节
+    uint16_t numchannels;
+    uint32_t sampleRate;
+    uint32_t byteRate;
+    uint16_t blockAlign;
+    uint16_t bitPerSample;
 } pcmFmt;
 
 
 typedef struct WAV_DATA {
-    char wavdata[WAV_DATA_SIZE];
-    unsigned long dataSize;
+    uint8_t wavdata[WAV_DATA_SIZE];
+    uint32_t dataSize;
 } pcmData;
 
 
