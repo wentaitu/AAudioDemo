@@ -511,7 +511,7 @@ aaudio_data_callback_result_t EchoAudioEngine::dataToRecordCallback(AAudioStream
                                                                     int32_t numFrames) {
     static uint64_t logging_flag;
     if (isRecordIng) {
-        fwrite(audioData, 1, 2 * numFrames * sizeof(short), recordFile);
+        fwrite(audioData, 1, inputChannelCount_ * numFrames * sizeof(short), recordFile);
         if ((logging_flag++) % 100 == 0) {
             LOGI("AAudioEngineCPP recordIng, numFrames: %d.", numFrames);
         }
@@ -531,7 +531,7 @@ aaudio_data_callback_result_t EchoAudioEngine::dataToPlayCallback(AAudioStream *
                                                                   int32_t numFrames) {
     static uint64_t logging_flag;
     if (playFile && isPlaying) {
-        size_t treadsize = fread(audioData, 2 * numFrames * sizeof(short), 1, playFile);
+        size_t treadsize = fread(audioData, outputChannelCount_ * numFrames * sizeof(short), 1, playFile);
         if ((logging_flag++) % 20 == 0) {
             LOGI("AAudioEngineCPP %s", "playing");
         }
